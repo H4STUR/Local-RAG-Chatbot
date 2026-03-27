@@ -13,6 +13,9 @@ return new class extends Migration
     {
         Schema::create('document_chunks', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('document_id')->constrained()->cascadeOnDelete();
+            $table->integer('chunk_index');
+            $table->text('content');
             $table->timestamps();
         });
     }
