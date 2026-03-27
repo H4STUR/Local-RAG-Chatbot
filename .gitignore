@@ -1,4 +1,7 @@
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> d5a45ade060e3ed732b7326cd20f6d0eeba027ba
 /vendor/
 node_modules/
 npm-debug.log
@@ -29,6 +32,7 @@ Homestead.json
 .env.production
 .phpactor.json
 auth.json
+<<<<<<< HEAD
 =======
 *.log
 .DS_Store
@@ -55,3 +59,5 @@ Homestead.json
 Homestead.yaml
 Thumbs.db
 >>>>>>> 0f347c2 (init commit)
+=======
+>>>>>>> d5a45ade060e3ed732b7326cd20f6d0eeba027ba
