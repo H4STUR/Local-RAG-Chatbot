@@ -1,58 +1,75 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Local RAG Chatbot
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+A locally-hosted Retrieval-Augmented Generation (RAG) chatbot built with Laravel. Upload PDF documents and ask questions about them — all AI inference runs on your machine via Ollama, with no external API calls.
 
-## About Laravel
+## Requirements
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+- PHP 8.3+
+- Composer
+- Node.js & npm
+- Docker (for PostgreSQL + pgvector)
+- [Ollama](https://ollama.com) with the following models pulled:
+  ```bash
+  ollama pull llama3.2
+  ollama pull embeddinggemma
+  ```
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## Setup
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
+**1. Start the database**
 ```bash
-composer require laravel/boost --dev
+docker compose up -d
+```
+This starts PostgreSQL 17 with the pgvector extension on port 5432. Adminer (DB UI) is available at `http://localhost:8080`.
 
-php artisan boost:install
+**2. Install dependencies and configure**
+```bash
+composer run setup
+```
+This runs `composer install`, creates `.env` from `.env.example`, generates the app key, runs migrations, and builds frontend assets.
+
+**3. Start the development server**
+```bash
+composer run dev
+```
+Opens the app at `http://localhost:8000`.
+
+## Usage
+
+### Ingest a document
+
+1. Go to `http://localhost:8000/upload` and upload a PDF (max 10 MB).
+2. Note the document ID returned.
+3. Chunk the document: `GET /chunk-document/{id}`
+4. Embed the chunks: `GET /embed-document/{id}`
+
+### Chat
+
+Go to `http://localhost:8000/chat` and ask questions about your uploaded documents.
+
+The API endpoint is also available directly:
+```bash
+curl -X POST http://localhost:8000/api/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is this document about?"}'
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+## How it works
 
-## Contributing
+1. **Upload** — PDFs are parsed with `smalot/pdfparser` and stored as text in the `documents` table.
+2. **Chunk** — Document text is split into 800-character chunks stored in `document_chunks`.
+3. **Embed** — Each chunk is sent to Ollama (`embeddinggemma`) to generate a 768-dimension vector, stored in PostgreSQL using the pgvector extension.
+4. **Query** — A user question is embedded, then the 3 nearest chunks are retrieved via L2 distance (`<->`), and passed as context to `llama3.2` to generate an answer.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+## Development
 
-## Code of Conduct
+```bash
+composer run test          # run tests
+./vendor/bin/pint          # format PHP code
+php artisan migrate:fresh  # reset database
+```
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Debug endpoints (development only):
+- `GET /ollama-test` — verify Ollama connectivity
+- `GET /embed-test` — verify embedding model
+- `GET /search-test?q=your+query` — test vector search

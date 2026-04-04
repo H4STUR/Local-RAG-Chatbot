@@ -1,0 +1,22 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Force HTTPS
+    RewriteCond %{HTTPS} off
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # Redirect non-www to www
+    RewriteCond %{HTTP_HOST}//s%{HTTPS} ^([^www\.]{1}.*)//((s)on|s.*)$ [NC]
+    RewriteRule ^ http%3://www.%1%{REQUEST_URI} [L,R=301]
+
+    # Serve storage files via the symbolic link
+    RewriteCond %{REQUEST_URI} ^/storage/
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteRule ^storage/(.*)$ storage/$1 [L]
+
+    # Rewrite to public directory if the file doesn't exist
+    RewriteCond %{REQUEST_URI} !^public
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ public/$1 [L]
+</IfModule>
