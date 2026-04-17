@@ -25,19 +25,20 @@
             border-radius: 8px;
         }
 
-        .user {
-            background: #e8f0fe;
-        }
-
-        .assistant {
-            background: #eef7ee;
-        }
+        .user      { background: #e8f0fe; }
+        .assistant { background: #eef7ee; }
 
         .sources {
-            font-size: 13px;
-            color: #555;
+            font-size: 12px;
+            color: #666;
             margin-top: 8px;
-            white-space: pre-wrap;
+        }
+
+        .timing {
+            font-size: 11px;
+            color: #999;
+            margin-top: 4px;
+            font-family: monospace;
         }
 
         .row {
@@ -78,7 +79,7 @@
         const questionInput = document.getElementById('question');
         const sendBtn = document.getElementById('sendBtn');
 
-        function addMessage(type, text, sources = null) {
+        function addMessage(type, text, data = {}) {
             const div = document.createElement('div');
             div.className = 'message ' + type;
 
@@ -86,13 +87,22 @@
             content.textContent = text;
             div.appendChild(content);
 
-            if (sources && sources.length) {
+            if (data.sources && data.sources.length) {
                 const sourcesDiv = document.createElement('div');
                 sourcesDiv.className = 'sources';
-                sourcesDiv.textContent = 'Top sources:\n' + sources.map(
-                    (s, i) => `${i + 1}. Chunk ${s.chunk_index}, distance: ${Number(s.distance).toFixed(4)}`
-                ).join('\n');
+                sourcesDiv.textContent = 'Sources: ' + data.sources.map(
+                    (s, i) => `#${i + 1} chunk ${s.chunk_index} (dist ${Number(s.distance).toFixed(4)})`
+                ).join(' · ');
                 div.appendChild(sourcesDiv);
+            }
+
+            if (data.timing_ms) {
+                const t = data.timing_ms;
+                const timingDiv = document.createElement('div');
+                timingDiv.className = 'timing';
+                timingDiv.textContent =
+                    `embed ${t.embed}ms · retrieval ${t.retrieval}ms · generate ${t.generate}ms · total ${t.total}ms`;
+                div.appendChild(timingDiv);
             }
 
             chatBox.appendChild(div);
@@ -105,20 +115,18 @@
 
             addMessage('user', question);
             questionInput.value = '';
+            sendBtn.disabled = true;
 
             const loading = document.createElement('div');
             loading.className = 'message assistant loading';
-            loading.textContent = 'Thinking...';
+            loading.textContent = 'Thinking…';
             chatBox.appendChild(loading);
             chatBox.scrollTop = chatBox.scrollHeight;
 
             try {
                 const response = await fetch('/api/ask', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
                     body: JSON.stringify({ question })
                 });
 
@@ -127,23 +135,19 @@
 
                 if (!response.ok) {
                     addMessage('assistant', data.error || 'Something went wrong.');
-                    return;
+                } else {
+                    addMessage('assistant', data.answer || 'No answer returned.', data);
                 }
-
-                addMessage('assistant', data.answer || 'No answer returned.', data.sources || []);
-            } catch (error) {
+            } catch (err) {
                 loading.remove();
-                addMessage('assistant', 'Request failed.');
+                addMessage('assistant', 'Request failed: ' + err.message);
+            } finally {
+                sendBtn.disabled = false;
             }
         }
 
         sendBtn.addEventListener('click', sendQuestion);
-
-        questionInput.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter') {
-                sendQuestion();
-            }
-        });
+        questionInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendQuestion(); });
     </script>
 </body>
 </html>
