@@ -1,99 +1,64 @@
 <?php
+
+use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\RagController;
+use App\Services\OllamaService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/ask', function (Request $request) {
-    $question = trim((string) $request->input('question', ''));
+// ── RAG ──────────────────────────────────────────────────────────────────────
+// Returns NDJSON stream: sources → tokens → done
+Route::post('/ask', [RagController::class, 'ask']);
 
-    if ($question === '') {
-        return response()->json(['error' => 'Question is required'], 422);
+// ── Documents ────────────────────────────────────────────────────────────────
+Route::get('/documents', [DocumentController::class, 'index']);
+Route::post('/documents', [DocumentController::class, 'upload']);
+Route::get('/documents/{id}/chunk', [DocumentController::class, 'chunk']);
+Route::get('/documents/{id}/embed', [DocumentController::class, 'embed']);
+Route::get('/documents/{id}/process', [DocumentController::class, 'process']); // chunk + embed
+Route::delete('/documents/{id}', [DocumentController::class, 'delete']);
+Route::delete('/documents', [DocumentController::class, 'deleteAll']);
+
+// ── Debug / smoke-tests ──────────────────────────────────────────────────────
+Route::get('/debug/ollama', function (OllamaService $ollama) {
+    try {
+        return response()->json(['answer' => $ollama->generate('Say hello in one sentence.')]);
+    } catch (\RuntimeException $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+});
+
+Route::get('/debug/embed', function (OllamaService $ollama) {
+    try {
+        $vec = $ollama->embed('Hello world');
+        return response()->json(['dimensions' => count($vec), 'sample' => array_slice($vec, 0, 5)]);
+    } catch (\RuntimeException $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+});
+
+// Raw retrieval — returns matching chunks + distances, no generation
+Route::get('/debug/search', function (Request $request, OllamaService $ollama) {
+    $query = trim((string) $request->query('q', ''));
+    if ($query === '') {
+        return response()->json(['error' => 'Missing q parameter'], 422);
     }
 
-    $embedResponse = Http::timeout(120)->post('http://localhost:11434/api/embed', [
-        'model' => 'embeddinggemma',
-        'input' => $question,
-    ]);
+    try {
+        $embedding = $ollama->embed($query);
+        $topK      = config('ollama.top_k');
+        $vector    = '[' . implode(',', array_map(fn ($v) => (float) $v, $embedding)) . ']';
 
-    if (! $embedResponse->successful()) {
-        return response()->json([
-            'error' => 'Embedding request failed',
-            'status' => $embedResponse->status(),
-            'body' => $embedResponse->body(),
-        ], 500);
+        $results = DB::select(
+            'SELECT id, document_id, chunk_index, content, embedding <-> ?::vector AS distance
+             FROM document_chunks WHERE embedding IS NOT NULL
+             ORDER BY embedding <-> ?::vector LIMIT ?',
+            [$vector, $vector, $topK]
+        );
+
+        return response()->json(['query' => $query, 'results' => $results]);
+    } catch (\RuntimeException $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
     }
-
-    $embedding = $embedResponse->json('embeddings.0');
-
-    if (! is_array($embedding) || empty($embedding)) {
-        return response()->json([
-            'error' => 'No embedding returned',
-            'json' => $embedResponse->json(),
-        ], 500);
-    }
-
-    $vector = '[' . implode(',', array_map(fn ($v) => (float) $v, $embedding)) . ']';
-
-    $results = DB::select(
-        '
-        SELECT
-            id,
-            document_id,
-            chunk_index,
-            content,
-            embedding <-> ?::vector AS distance
-        FROM document_chunks
-        WHERE embedding IS NOT NULL
-        ORDER BY embedding <-> ?::vector
-        LIMIT 3
-        ',
-        [$vector, $vector]
-    );
-
-    if (empty($results)) {
-        return response()->json([
-            'question' => $question,
-            'answer' => 'I could not find any relevant information in the knowledge base.',
-            'sources' => [],
-        ]);
-    }
-
-    $context = collect($results)
-        ->map(fn ($row, $i) => "Source " . ($i + 1) . ":\n" . $row->content)
-        ->implode("\n\n");
-
-    $prompt = <<<PROMPT
-You are a helpful website assistant.
-
-Answer the user's question using ONLY the provided context.
-If the answer is not in the context, say clearly that you do not know based on the provided information.
-Keep the answer concise and natural.
-
-Context:
-$context
-
-User question:
-$question
-PROMPT;
-
-    $chatResponse = Http::timeout(120)->post('http://localhost:11434/api/generate', [
-        'model' => 'llama3.2',
-        'prompt' => $prompt,
-        'stream' => false,
-    ]);
-
-    if (! $chatResponse->successful()) {
-        return response()->json([
-            'error' => 'Chat generation failed',
-            'status' => $chatResponse->status(),
-            'body' => $chatResponse->body(),
-        ], 500);
-    }
-
-    return response()->json([
-        'question' => $question,
-        'answer' => trim((string) $chatResponse->json('response')),
-        'sources' => $results,
-    ]);
 });
